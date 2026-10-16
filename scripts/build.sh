@@ -29,6 +29,11 @@ run_tests() {
     env -u SDKROOT clang -isysroot "$mac_sdk" -fobjc-arc -Wall -Wextra -I. -framework Foundation \
         tests/PNVideoTargetTests.m PNVideoTarget.m -o "$BUILD_DIR/PNVideoTargetTests"
     "$BUILD_DIR/PNVideoTargetTests"
+    printf 'Running button placement tests…\n'
+    env -u SDKROOT clang -isysroot "$mac_sdk" -fobjc-arc -Wall -Wextra -Werror -I. \
+        -framework Foundation -framework CoreGraphics \
+        tests/PNButtonLayoutTests.m PNButtonLayout.m -o "$BUILD_DIR/PNButtonLayoutTests"
+    "$BUILD_DIR/PNButtonLayoutTests"
 }
 
 verify_package() {
@@ -105,7 +110,7 @@ build_package() {
             -Wl,-install_name,@rpath/BiliToPiliNara.dylib \
             -Wl,-rpath,/var/jb/Library/Frameworks -Wl,-rpath,/var/jb/usr/lib \
             '-Wl,-rpath,@loader_path/.jbroot/Library/Frameworks' '-Wl,-rpath,@loader_path/.jbroot/usr/lib' \
-            Tweak.m PNVideoTarget.m -o "$BUILD_DIR/BiliToPiliNara.$arch.dylib"
+            Tweak.m PNVideoTarget.m PNButtonLayout.m -o "$BUILD_DIR/BiliToPiliNara.$arch.dylib"
     done
     lipo -create "$BUILD_DIR/BiliToPiliNara.arm64.dylib" "$BUILD_DIR/BiliToPiliNara.arm64e.dylib" \
         -output "$install_dir/BiliToPiliNara.dylib"
@@ -116,7 +121,7 @@ build_package() {
         printf 'Repository: https://github.com/Caun1112/BiliToPiliNara\n'
         printf 'Commit: %s\nWorking tree: %s\nVersion: %s\nSource date epoch: %s\n' "$source_commit" "$source_state" "$PACKAGE_VERSION" "$SOURCE_DATE_EPOCH"
         printf '\nSource SHA256:\n'
-        shasum -a 256 Tweak.m PNVideoTarget.m PNVideoTarget.h BiliToPiliNara.plist control Makefile scripts/build.sh
+        shasum -a 256 Tweak.m PNVideoTarget.m PNVideoTarget.h PNButtonLayout.m PNButtonLayout.h BiliToPiliNara.plist control Makefile scripts/build.sh
     } > "$doc_dir/SOURCE-COMMIT.txt"
     cp "$doc_dir/SOURCE-COMMIT.txt" "$OUTPUT_DIR/SOURCE-COMMIT.txt"
     cp LICENSE THIRD_PARTY_NOTICES.md "$doc_dir/"

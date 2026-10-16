@@ -24,7 +24,9 @@ run_tests() {
     need clang
     mkdir -p "$BUILD_DIR"
     printf 'Running URL parser tests…\n'
-    clang -fobjc-arc -Wall -Wextra -I. -framework Foundation \
+    local mac_sdk
+    mac_sdk="$(xcrun --sdk macosx --show-sdk-path)"
+    env -u SDKROOT clang -isysroot "$mac_sdk" -fobjc-arc -Wall -Wextra -I. -framework Foundation \
         tests/PNVideoTargetTests.m PNVideoTarget.m -o "$BUILD_DIR/PNVideoTargetTests"
     "$BUILD_DIR/PNVideoTargetTests"
 }

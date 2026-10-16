@@ -1,0 +1,65 @@
+name: Build rootless DEB
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional release tag (for example v1.0.0); leave blank for artifacts only'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rootless-deb-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check out pinned Theos link stubs
+        uses: actions/checkout@v4
+        with:
+          repository: theos/lib
+          ref: 6f2af307568e6b8c52181d26314b0cd69ffaf188
+          path: .toolchain/theos/vendor/lib
+      - name: Install packaging tools
+        run: brew install ldid dpkg
+      - name: Select iPhoneOS SDK
+        run: |
+          echo "SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path)" >> "$GITHUB_ENV"
+          echo "THEOS=$GITHUB_WORKSPACE/.toolchain/theos" >> "$GITHUB_ENV"
+      - name: Build and verify rootless package
+        run: ./scripts/build.sh package
+      - name: Upload rootless DEB and provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: BiliToPiliNara-rootless
+          path: |
+            packages/*.deb
+            packages/SHA256SUMS
+            packages/SOURCE-COMMIT.txt
+          if-no-files-found: error
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          release_tag="${REQUESTED_TAG:-$GITHUB_REF_NAME}"
+          if ! gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release create "$release_tag" --target "$GITHUB_SHA" --title "BiliToPiliNara $release_tag" --generate-notes
+          fi
+          gh release upload "$release_tag" packages/*.deb packages/SHA256SUMS packages/SOURCE-COMMIT.txt --clobber

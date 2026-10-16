@@ -1,0 +1,9 @@
+Package: com.caun.bilitopilinara
+Name: BiliToPiliNara
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Adds an Open in PiliNara button to Bilibili video detail pages.
+Maintainer: Caun1112
+Author: Caun1112
+Section: Tweaks
+Depends: firmware (>= 15.0), mobilesubstrate

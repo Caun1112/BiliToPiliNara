@@ -34,6 +34,11 @@ run_tests() {
         -framework Foundation -framework CoreGraphics \
         tests/PNButtonLayoutTests.m PNButtonLayout.m -o "$BUILD_DIR/PNButtonLayoutTests"
     "$BUILD_DIR/PNButtonLayoutTests"
+    printf 'Running portrait native action rail tests…\n'
+    env -u SDKROOT clang -isysroot "$mac_sdk" -fobjc-arc -Wall -Wextra -Werror -I. \
+        -framework Foundation -framework CoreGraphics \
+        tests/PNPortraitActionRailTests.m PNButtonLayout.m -o "$BUILD_DIR/PNPortraitActionRailTests"
+    "$BUILD_DIR/PNPortraitActionRailTests"
 }
 
 verify_package() {

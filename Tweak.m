@@ -17,6 +17,14 @@ static char PNObservedKey;
 
 @interface PNJumpButton : UIButton
 @property(nonatomic) BOOL opening;
+@property(nonatomic) BOOL portraitStyle;
+@property(nonatomic) BOOL styleConfigured;
+@property(nonatomic, weak) id anchorPlayer;
+@property(nonatomic, weak) UIViewController *anchorDetailOwner;
+@property(nonatomic, copy) NSString *anchorContext;
+@property(nonatomic) CGRect anchorBounds;
+@property(nonatomic) CGRect portraitFrame;
+- (void)applyPortraitStyle:(BOOL)portrait;
 @end
 
 static void PNObservePlayback(id playback) {
@@ -64,6 +72,8 @@ static id PNCurrentPlayback(UIView *scope) {
 
 static UIViewController *PNFrontController(UIViewController *controller);
 static id PNVideoPlaybackInWindow(UIWindow *window);
+static UIViewController *PNDetailOwner(UIView *render);
+static BOOL PNReadPortraitRail(UIWindow *window, id player, PNPortraitActionRail *rail);
 
 static void PNShowMessage(UIWindow *window, NSString *message) {
     UIViewController *presenter = PNFrontController(window.rootViewController);
@@ -76,6 +86,42 @@ static void PNShowMessage(UIWindow *window, NSString *message) {
 }
 
 @implementation PNJumpButton
+- (CGRect)imageRectForContentRect:(CGRect)contentRect {
+    if (!self.portraitStyle) return [super imageRectForContentRect:contentRect];
+    return CGRectMake(CGRectGetMidX(contentRect) - 18, CGRectGetMinY(contentRect), 36, 36);
+}
+- (CGRect)titleRectForContentRect:(CGRect)contentRect {
+    if (!self.portraitStyle) return [super titleRectForContentRect:contentRect];
+    return CGRectMake(CGRectGetMinX(contentRect), CGRectGetMinY(contentRect) + 42,
+        CGRectGetWidth(contentRect), 16);
+}
+- (void)applyPortraitStyle:(BOOL)portrait {
+    if (self.styleConfigured && self.portraitStyle == portrait) return;
+    self.styleConfigured = YES;
+    self.portraitStyle = portrait;
+    self.backgroundColor = portrait ? UIColor.clearColor :
+        [UIColor colorWithRed:0.91 green:0.27 blue:0.48 alpha:1];
+    self.alpha = portrait ? 1 : 0.5;
+    self.layer.shadowOpacity = portrait ? 0.3 : 0.18;
+    self.layer.shadowRadius = portrait ? 1 : 6;
+    self.layer.shadowOffset = CGSizeMake(0, portrait ? 1 : 2);
+    self.tintColor = UIColor.whiteColor;
+    self.imageView.contentMode = UIViewContentModeScaleAspectFit;
+    self.titleLabel.font = [UIFont systemFontOfSize:portrait ? 12 : 17
+        weight:portrait ? UIFontWeightMedium : UIFontWeightSemibold];
+    self.titleLabel.textAlignment = NSTextAlignmentCenter;
+    self.titleLabel.shadowColor = portrait ? [UIColor colorWithWhite:0 alpha:0.45] : nil;
+    self.titleLabel.shadowOffset = CGSizeMake(0, portrait ? 1 : 0);
+    static UIImage *downloadImage;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        downloadImage = [UIImage systemImageNamed:@"arrow.down.to.line"
+            withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:28 weight:UIImageSymbolWeightBold]];
+    });
+    [self setImage:portrait ? downloadImage : nil forState:UIControlStateNormal];
+    [self setTitle:portrait ? @"480P" : @"P↗" forState:UIControlStateNormal];
+    [self setNeedsLayout];
+}
 - (void)openCurrentVideo {
     UIWindow *window = self.window;
     if (self.opening || !window || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
@@ -102,18 +148,12 @@ static void PNShowMessage(UIWindow *window, NSString *message) {
 }
 @end
 
-static PNJumpButton *PNInstallButton(UIWindow *window) {
+static PNJumpButton *PNInstallButton(UIWindow *window, id player) {
     PNJumpButton *button = objc_getAssociatedObject(window, &PNButtonKey);
     if (!button) {
         button = [PNJumpButton buttonWithType:UIButtonTypeCustom];
-        button.backgroundColor = [UIColor colorWithRed:0.91 green:0.27 blue:0.48 alpha:1];
-        button.alpha = 0.5;
         button.layer.shadowColor = UIColor.blackColor.CGColor;
-        button.layer.shadowOpacity = 0.18;
-        button.layer.shadowRadius = 6;
-        button.layer.shadowOffset = CGSizeMake(0, 2);
-        button.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
-        [button setTitle:@"P↗" forState:UIControlStateNormal];
+        button.portraitFrame = CGRectNull;
         [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
         button.accessibilityIdentifier = @"com.caun.bilitopilinara.open";
         button.accessibilityLabel = @"在 PiliNara 下载当前视频（480P）";
@@ -124,13 +164,40 @@ static PNJumpButton *PNInstallButton(UIWindow *window) {
         objc_setAssociatedObject(window, &PNButtonKey, button, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         [PNButtons addObject:button];
     }
-    // Only the actual app window defines placement. Page, sheet, player and
-    // keyboard layouts must never become the button's coordinate system.
+    // Keep every frame in the window, including the native action-rail anchor.
     CGRect bounds = window.bounds;
     CGRect safe = UIEdgeInsetsInsetRect(bounds, window.safeAreaInsets);
-    CGRect frame = PNJumpButtonFrame(bounds, safe);
+    PNVideoTarget *target = [PNVideoTarget targetWithPlayerItem:PNReadValue(player, @"currentItem")];
+    NSString *context = [NSString stringWithFormat:@"%@:%@", target.videoID, target.cid];
+    if (button.anchorPlayer != player || ![button.anchorContext isEqualToString:context] ||
+        !CGRectEqualToRect(button.anchorBounds, bounds)) {
+        button.anchorPlayer = player;
+        button.anchorContext = context;
+        button.anchorBounds = bounds;
+        button.portraitFrame = CGRectNull;
+    }
+    PNPortraitActionRail rail;
+    BOOL hasRail = CGRectGetHeight(bounds) > CGRectGetWidth(bounds) &&
+        PNReadPortraitRail(window, player, &rail);
+    if (hasRail && CGRectIsNull(button.portraitFrame)) {
+        button.portraitFrame = PNPortraitJumpButtonFrame(bounds, safe, rail);
+        UIView *render = PNReadValue(player, @"view");
+        button.anchorDetailOwner = [render isKindOfClass:UIView.class] ? PNDetailOwner(render) : nil;
+    } else if (!hasRail) {
+        UIView *render = PNReadValue(player, @"view");
+        UIViewController *detail = [render isKindOfClass:UIView.class] ? PNDetailOwner(render) : nil;
+        if (CGRectGetWidth(bounds) >= CGRectGetHeight(bounds) ||
+            (detail && detail != button.anchorDetailOwner)) {
+            button.portraitFrame = CGRectNull;
+        }
+    }
+    // Freeze a confirmed rail position for this video/viewport. Comment sheets
+    // and keyboards must not recalculate the anchor from comment vote buttons.
+    BOOL portrait = !CGRectIsNull(button.portraitFrame);
+    CGRect frame = portrait ? button.portraitFrame : PNJumpButtonFrame(bounds, safe);
+    [button applyPortraitStyle:portrait];
     if (!CGRectEqualToRect(button.frame, frame)) button.frame = frame;
-    button.layer.cornerRadius = CGRectGetWidth(button.bounds) / 2;
+    button.layer.cornerRadius = portrait ? 0 : CGRectGetWidth(button.bounds) / 2;
     button.hidden = CGRectIsEmpty(button.frame);
     if (window.subviews.lastObject != button) [window bringSubviewToFront:button];
     return button;
@@ -159,6 +226,101 @@ static BOOL PNLikeName(NSString *name) {
     return [lower containsString:@"点赞"] || [lower isEqualToString:@"赞"] ||
         [lower containsString:@"like"] || [lower containsString:@"thumbup"] ||
         [lower containsString:@"thumbsup"];
+}
+
+static PNPortraitActionKind PNActionKind(NSString *name) {
+    if (![name isKindOfClass:NSString.class] || !name.length) return PNPortraitActionUnknown;
+    NSString *lower = name.lowercaseString;
+    if ([lower containsString:@"dislike"] || [lower containsString:@"点踩"] ||
+        [lower containsString:@"不喜欢"]) return PNPortraitActionUnknown;
+    if ([lower containsString:@"点赞"] || [lower isEqualToString:@"赞"] ||
+        [lower containsString:@"like"] || [lower containsString:@"thumbup"]) return PNPortraitActionLike;
+    if ([lower containsString:@"评论"] || [lower containsString:@"comment"] ||
+        [lower containsString:@"reply"]) return PNPortraitActionComment;
+    if ([lower containsString:@"投币"] || [lower containsString:@"coin"]) return PNPortraitActionCoin;
+    if ([lower containsString:@"收藏"] || [lower containsString:@"favor"] ||
+        [lower containsString:@"collect"]) return PNPortraitActionFavorite;
+    if ([lower containsString:@"分享"] || [lower containsString:@"转发"] ||
+        [lower containsString:@"share"]) return PNPortraitActionShare;
+    return PNPortraitActionUnknown;
+}
+
+static PNPortraitActionKind PNViewActionKind(UIView *view) {
+    PNPortraitActionKind kind = PNActionKind(view.accessibilityLabel);
+    if (kind == PNPortraitActionUnknown) kind = PNActionKind(view.accessibilityIdentifier);
+    if (kind == PNPortraitActionUnknown) kind = PNActionKind(NSStringFromClass(view.class));
+    if (kind == PNPortraitActionUnknown && [view isKindOfClass:UIControl.class]) {
+        UIControl *control = (UIControl *)view;
+        for (id target in control.allTargets) {
+            for (NSString *action in [control actionsForTarget:target forControlEvent:UIControlEventTouchUpInside]) {
+                kind = PNActionKind(action);
+                if (kind != PNPortraitActionUnknown) return kind;
+            }
+        }
+    }
+    if (kind == PNPortraitActionUnknown && [view isKindOfClass:UIImageView.class]) {
+        kind = PNActionKind(((UIImageView *)view).image.description);
+    }
+    return kind;
+}
+
+static BOOL PNReadPortraitRail(UIWindow *window, id player, PNPortraitActionRail *rail) {
+    PNPortraitActionAnchor anchors[128];
+    NSUInteger count = 0, visited = 0;
+    NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:window];
+    while (pending.count && visited++ < 1800 && count < 128) {
+        UIView *view = pending.lastObject;
+        [pending removeLastObject];
+        if (view.hidden || view.alpha < 0.01 || [view isKindOfClass:PNJumpButton.class] ||
+            !PNVisibleInScope(view, window)) continue;
+        [pending addObjectsFromArray:view.subviews];
+        CGRect sourceRect = [view convertRect:view.bounds toView:window];
+        if (sourceRect.size.width > 100 || sourceRect.size.height > 110 ||
+            CGRectGetMidX(sourceRect) < CGRectGetMinX(window.bounds) + window.bounds.size.width * 0.78) continue;
+        PNPortraitActionKind kind = PNViewActionKind(view);
+        UIView *anchor = nil;
+        UIView *candidate = view;
+        for (NSUInteger depth = 0; candidate && candidate != window && depth < 4;
+             depth++, candidate = candidate.superview) {
+            CGRect r = [candidate convertRect:candidate.bounds toView:window];
+            if (r.size.width > 100 || r.size.height > 110) break;
+            if (kind == PNPortraitActionUnknown) kind = PNViewActionKind(candidate);
+            BOOL interactive = [candidate isKindOfClass:UIControl.class] ||
+                (candidate.accessibilityTraits & UIAccessibilityTraitButton) || candidate.gestureRecognizers.count;
+            if (interactive && r.size.width >= 24 && r.size.height >= 28) anchor = candidate;
+        }
+        if (!anchor && kind != PNPortraitActionUnknown && [view isKindOfClass:UIImageView.class]) anchor = view;
+        if (!anchor) continue;
+        CGRect frame = [anchor convertRect:anchor.bounds toView:window];
+        if (frame.size.width < 24 || frame.size.height < 28 || frame.size.width > 100 || frame.size.height > 110 ||
+            CGRectGetMidX(frame) < CGRectGetWidth(window.bounds) * 0.78 + CGRectGetMinX(window.bounds) ||
+            !CGRectContainsRect(window.bounds, frame)) continue;
+        uintptr_t column = 0;
+        for (UIView *parent = anchor.superview; parent && parent != window; parent = parent.superview) {
+            CGRect r = [parent convertRect:parent.bounds toView:window];
+            if (r.size.width <= window.bounds.size.width * 0.25 && r.size.height >= 180 &&
+                r.size.height <= window.bounds.size.height * 0.8) {
+                column = (uintptr_t)(__bridge void *)parent;
+                break;
+            }
+        }
+        BOOL duplicate = NO;
+        for (NSUInteger i = 0; i < count; i++) {
+            if (CGRectEqualToRect(anchors[i].frame, frame)) {
+                if (anchors[i].kind == PNPortraitActionUnknown) anchors[i].kind = kind;
+                duplicate = YES;
+                break;
+            }
+        }
+        if (!duplicate) anchors[count++] = (PNPortraitActionAnchor){frame, kind, column};
+    }
+    UIView *render = PNReadValue(player, @"view");
+    BOOL immersive = [render isKindOfClass:UIView.class] && !PNDetailOwner(render);
+    if ([render isKindOfClass:UIView.class]) {
+        CGRect r = [render convertRect:render.bounds toView:window];
+        immersive |= r.size.height >= window.bounds.size.height * 0.65;
+    }
+    return PNFindPortraitActionRail(anchors, count, window.bounds, immersive, rail);
 }
 
 // Recognize a portrait video context only; controls never influence placement.
@@ -235,8 +397,9 @@ static void PNRefreshButtons(void) {
                 // Text entry may change the key window. Match the content window
                 // by its current video instead of moving into an input window.
                 if (window.hidden || window.alpha < 0.01 || !window.rootViewController.isViewLoaded) continue;
-                if (!PNVideoPlaybackInWindow(window)) continue;
-                [activeButtons addObject:PNInstallButton(window)];
+                id player = PNVideoPlaybackInWindow(window);
+                if (!player) continue;
+                [activeButtons addObject:PNInstallButton(window, player)];
             }
         }
     }

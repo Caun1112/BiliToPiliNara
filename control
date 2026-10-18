@@ -1,6 +1,6 @@
 Package: com.caun.bilitopilinara
 Name: BiliToPiliNara
-Version: 1.0.2
+Version: 1.0.3
 Architecture: iphoneos-arm64
 Description: Adds an Open in PiliNara button to Bilibili video detail pages.
 Maintainer: Caun1112

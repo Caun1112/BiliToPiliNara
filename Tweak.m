@@ -86,14 +86,17 @@ static void PNShowMessage(UIWindow *window, NSString *message) {
         PNShowMessage(window, @"尚未读取到当前视频和分 P。请让视频开始播放后重试。若仍失败，可能需要适配当前哔哩哔哩版本。");
         return;
     }
+    NSURLComponents *download = [NSURLComponents componentsWithURL:target.downloadURL resolvingAgainstBaseURL:NO];
+    download.queryItems = [download.queryItems arrayByAddingObject:
+        [NSURLQueryItem queryItemWithName:@"request_id" value:NSUUID.UUID.UUIDString]];
     self.opening = YES;
     self.enabled = NO;
     // Do not call canOpenURL: the host App has no pilinara scheme whitelist.
-    [UIApplication.sharedApplication openURL:target.URL options:@{} completionHandler:^(BOOL success) {
+    [UIApplication.sharedApplication openURL:download.URL options:@{} completionHandler:^(BOOL success) {
         dispatch_async(dispatch_get_main_queue(), ^{
             self.opening = NO;
             self.enabled = YES;
-            if (!success) PNShowMessage(window, @"无法打开 PiliNara。请安装支持 pilinara:// 的版本（2026-10-13 的“B站打开”版或更新版本）。");
+            if (!success) PNShowMessage(window, @"无法打开 PiliNara。请安装支持一键480P下载的新版 PiliNara。");
         });
     }];
 }
@@ -113,8 +116,8 @@ static PNJumpButton *PNInstallButton(UIWindow *window) {
         [button setTitle:@"P↗" forState:UIControlStateNormal];
         [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
         button.accessibilityIdentifier = @"com.caun.bilitopilinara.open";
-        button.accessibilityLabel = @"在 PiliNara 打开当前视频";
-        button.accessibilityHint = @"跳转到当前视频的同一分 P";
+        button.accessibilityLabel = @"在 PiliNara 下载当前视频（480P）";
+        button.accessibilityHint = @"下载当前分P，完成后弹出分享或保存面板";
         [button addTarget:button action:@selector(openCurrentVideo) forControlEvents:UIControlEventTouchUpInside];
         // A single small window subview leaves all other touches with Bilibili.
         [window addSubview:button];

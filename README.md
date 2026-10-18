@@ -1,15 +1,15 @@
 # BiliToPiliNara
 
-一个只负责应用间跳转的 iOS rootless 插件。在官方哔哩哔哩的视频详情／全屏播放页增加圆形 **P↗** 按钮，打开 PiliNara 中的同一视频、同一分 P。按钮直径 44 点，整体不透明度为 50%。
+一个只负责应用间跳转的 iOS rootless 插件。在官方哔哩哔哩的视频详情／全屏播放页增加圆形 **P↗** 按钮，在 PiliNara 下载同一视频、同一分 P 的 480P，完成后自动弹出分享／保存面板。按钮直径 44 点，整体不透明度为 50%。
 
 ## 安装与使用
 
 1. 从 [Releases](https://github.com/Caun1112/BiliToPiliNara/releases) 下载 `com.caun.bilitopilinara_*_iphoneos-arm64.deb`，用 Sileo / Zebra 安装。
-2. 确认已安装支持独立 `pilinara://` 的 PiliNara。你现有的 [2026-10-13「B站打开」版 2.1.5+6023](https://github.com/Caun1112/PiliNara/releases/tag/fork-2.1.5-bili-open-20261013) 已支持，无需重编。
-3. 从后台彻底退出哔哩哔哩，再打开视频详情页，点击圆形 **P↗**。
-4. 在 PiliNara 点击已有的 **B站打开**，可以跳回官方 App。
+2. 先安装[配套的一键 480P 下载版 PiliNara](https://github.com/Caun1112/PiliNara/releases/tag/fork-2.1.6-auto480-20261018)，它支持 `action=download` 下载指令。
+3. 从后台彻底退出哔哩哔哩，再打开视频详情页，点击圆形 **P↗**，会直接进入 PiliNara 下载页并启动当前分 P 的 480P 任务。
+4. 下载完成后会弹出系统分享面板，可保存视频或分享给其他 App。PiliNara 视频页原有 **B站打开** 仍可跳回官方 App。
 
-普通 AV/BV 视频按当前播放器的 `cid` 打开对应分 P。缺少当前视频信息、分 P 未就绪、或多个播放器无法区分时会提示重试，避免跳到错误视频。插件没有设置页。
+普通 AV/BV 视频按当前播放器的 `cid` 下载对应分 P。每次点击带有独立请求 ID，避免重复处理。缺少当前视频信息、分 P 未就绪、或多个播放器无法区分时会提示重试，避免跳到错误视频。插件没有设置页。
 
 ## 固定位置
 
@@ -34,8 +34,9 @@
 哔哩哔哩视频详情页
   → 当前详情页内的 BBPlayerPlayback
   → currentItem.oid + currentItem.cid
-  → pilinara://video/170001?cid=279786
-  → PiliNara /videoV，同一视频和分 P
+  → pilinara://video/170001?cid=279786&action=download&quality=32&share=1&request_id=UUID
+  → PiliNara /download，同一视频和分 P 的严格 480P 下载
+  → 完成后弹出系统分享／保存面板
 
 PiliNara 的「B站打开」
   → 官方 Universal Link，失败时使用 bilibili://
@@ -44,7 +45,7 @@ PiliNara 的「B站打开」
 
 跳转时重新读取当前播放器，不缓存全局的“最后一个视频”，也不读取推荐列表的数据。只有 `playback.view` 位于当前前台播放页、没有被父视图隐藏或裁剪到屏幕外的播放器才能作为目标；多个候选时优先唯一的 `isGetFocus` 播放器。
 
-本地 `/Users/caun/code/PiliNara-merge-20260910` 是旧分支，仍注册 `bilibili://`；真正包含「B站打开」及独立入站协议的版本位于 `/Users/caun/code/PiliNara`，提交 [`22587a6bf`](https://github.com/Caun1112/PiliNara/commit/22587a6bf161403b3ff41c8dccc66da052d9ffd6)。本次无需修改任何 PiliNara 源码。
+配套 PiliNara 会重新校验视频与 CID，并检查服务器返回的真实 480P 轨道。没有 480P 时明确提示；已完成或进行中的同画质任务可复用，暂停／失败／重启恢复的任务可继续；已有其他画质缓存会保留并提示处理。此次自动操作不修改手动下载的默认画质。
 
 ## 注入原理与参考
 

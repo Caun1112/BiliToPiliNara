@@ -77,4 +77,15 @@ static NSString *PNPositiveInteger(id value) {
     components.queryItems = @[[NSURLQueryItem queryItemWithName:@"cid" value:self.cid]];
     return components.URL;
 }
+- (NSURL *)downloadURL {
+    NSURLComponents *components = [NSURLComponents componentsWithURL:self.URL resolvingAgainstBaseURL:NO];
+    NSMutableArray<NSURLQueryItem *> *queryItems = [components.queryItems mutableCopy];
+    [queryItems addObjectsFromArray:@[
+        [NSURLQueryItem queryItemWithName:@"action" value:@"download"],
+        [NSURLQueryItem queryItemWithName:@"quality" value:@"32"],
+        [NSURLQueryItem queryItemWithName:@"share" value:@"1"],
+    ]];
+    components.queryItems = queryItems;
+    return components.URL;
+}
 @end

@@ -9,6 +9,7 @@ FOUNDATION_EXPORT id _Nullable PNReadValue(id _Nullable object, NSString *key);
 @property(nonatomic, copy, readonly) NSString *videoID;
 @property(nonatomic, copy, readonly) NSString *cid;
 @property(nonatomic, readonly) NSURL *URL;
+@property(nonatomic, readonly) NSURL *downloadURL;
 + (nullable instancetype)targetWithPlayerItem:(id _Nullable)item;
 @end
 

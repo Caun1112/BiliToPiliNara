@@ -15,24 +15,31 @@ static CGFloat PNClamp(CGFloat value, CGFloat minimum, CGFloat maximum) {
     return MIN(MAX(value, minimum), maximum);
 }
 
-CGRect PNJumpButtonFrame(CGRect bounds, CGRect safeBounds, CGRect likeFrame) {
-    if (!PNUsableRect(bounds)) return CGRectZero;
+CGRect PNJumpButtonFrame(CGRect windowBounds, CGRect safeBounds) {
+    if (!PNUsableRect(windowBounds)) return CGRectZero;
 
-    // A not-yet-laid-out safe area must not hide an otherwise usable control.
-    CGRect safe = PNUsableRect(safeBounds) ? CGRectIntersection(bounds, safeBounds) : bounds;
-    if (!PNUsableRect(safe)) safe = bounds;
+    CGFloat safeMinX = CGRectGetMinX(windowBounds);
+    CGFloat safeMaxX = CGRectGetMaxX(windowBounds);
+    // Use only physical side insets. Sheet or keyboard-related vertical changes
+    // must never turn the fixed window position into a content-relative one.
+    if (isfinite(safeBounds.origin.x) && isfinite(safeBounds.size.width) &&
+        safeBounds.size.width > 0 && isfinite(CGRectGetMaxX(safeBounds))) {
+        CGFloat intersectionMin = MAX(safeMinX, CGRectGetMinX(safeBounds));
+        CGFloat intersectionMax = MIN(safeMaxX, CGRectGetMaxX(safeBounds));
+        if (intersectionMax > intersectionMin) {
+            safeMinX = intersectionMin;
+            safeMaxX = intersectionMax;
+        }
+    }
 
     const CGFloat margin = 8;
-    if (safe.size.width <= 2 * margin || safe.size.height <= 2 * margin) return CGRectZero;
-    CGRect available = CGRectInset(safe, margin, margin);
+    if (safeMaxX - safeMinX <= 2 * margin || windowBounds.size.height <= 2 * margin) return CGRectZero;
+    CGRect available = CGRectMake(safeMinX + margin, CGRectGetMinY(windowBounds) + margin,
+        safeMaxX - safeMinX - 2 * margin, CGRectGetHeight(windowBounds) - 2 * margin);
     CGFloat diameter = MIN(PNJumpButtonDiameter, MIN(available.size.width, available.size.height));
 
-    CGFloat x = CGRectGetMaxX(safe) - 12 - diameter;
-    CGFloat y = CGRectGetMinY(bounds) + 0.60 * CGRectGetHeight(bounds) - diameter / 2;
-    if (PNUsableRect(likeFrame) && CGRectContainsRect(bounds, likeFrame)) {
-        x = CGRectGetMidX(likeFrame) - diameter / 2;
-        y = CGRectGetMinY(likeFrame) - 12 - diameter;
-    }
+    CGFloat x = safeMaxX - 12 - diameter;
+    CGFloat y = CGRectGetMinY(windowBounds) + 0.60 * CGRectGetHeight(windowBounds) - diameter / 2;
 
     x = PNClamp(x, CGRectGetMinX(available), CGRectGetMaxX(available) - diameter);
     y = PNClamp(y, CGRectGetMinY(available), CGRectGetMaxY(available) - diameter);

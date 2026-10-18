@@ -4,20 +4,18 @@
 #import <mach-o/dyld.h>
 #import <stdatomic.h>
 #import <string.h>
-#import <math.h>
 #import "PNVideoTarget.h"
 #import "PNButtonLayout.h"
 
 // Only weak references to players; never retain a previous video's identifiers.
 static NSHashTable *PNPlaybacks;
 static NSLock *PNPlaybackLock;
-static NSHashTable *PNButtonOwners;
+static NSHashTable *PNButtons;
 static dispatch_source_t PNRefreshTimer;
 static char PNButtonKey;
 static char PNObservedKey;
 
 @interface PNJumpButton : UIButton
-@property(nonatomic, weak) UIViewController *owner;
 @property(nonatomic) BOOL opening;
 @end
 
@@ -29,22 +27,23 @@ static void PNObservePlayback(id playback) {
     objc_setAssociatedObject(playback, &PNObservedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
-static BOOL PNVisibleInOwner(UIView *render, UIView *owner) {
-    if (!render.window || render.window != owner.window || ![render isDescendantOfView:owner]) return NO;
-    CGRect visible = [render convertRect:render.bounds toView:owner];
-    if (CGRectIsEmpty(CGRectIntersection(visible, owner.bounds))) return NO;
+static BOOL PNVisibleInScope(UIView *render, UIView *scope) {
+    UIWindow *window = [scope isKindOfClass:UIWindow.class] ? (UIWindow *)scope : scope.window;
+    if (!render.window || render.window != window || ![render isDescendantOfView:scope]) return NO;
+    CGRect visible = [render convertRect:render.bounds toView:scope];
+    if (CGRectIsEmpty(CGRectIntersection(visible, scope.bounds))) return NO;
     for (UIView *view = render; view; view = view.superview) {
         if (view.hidden || view.alpha < 0.01) return NO;
         if (view.clipsToBounds) {
-            visible = CGRectIntersection(visible, [view convertRect:view.bounds toView:owner]);
+            visible = CGRectIntersection(visible, [view convertRect:view.bounds toView:scope]);
             if (CGRectIsEmpty(visible)) return NO;
         }
-        if (view == owner) return YES;
+        if (view == scope) return YES;
     }
     return NO;
 }
 
-static id PNCurrentPlayback(UIViewController *owner) {
+static id PNCurrentPlayback(UIView *scope) {
     [PNPlaybackLock lock];
     NSArray *players = PNPlaybacks.allObjects;
     [PNPlaybackLock unlock];
@@ -52,7 +51,7 @@ static id PNCurrentPlayback(UIViewController *owner) {
     NSMutableArray *focused = [NSMutableArray array];
     for (id player in players) {
         id render = PNReadValue(player, @"view");
-        if (![render isKindOfClass:UIView.class] || !PNVisibleInOwner(render, owner.view)) continue;
+        if (![render isKindOfClass:UIView.class] || !PNVisibleInScope(render, scope)) continue;
         id item = PNReadValue(player, @"currentItem");
         if (![PNVideoTarget targetWithPlayerItem:item]) continue;
         [visible addObject:player];
@@ -63,22 +62,28 @@ static id PNCurrentPlayback(UIViewController *owner) {
     return focused.count == 0 && visible.count == 1 ? visible.firstObject : nil;
 }
 
-static void PNShowMessage(UIViewController *owner, NSString *message) {
-    if (!owner.view.window || owner.presentedViewController) return;
+static UIViewController *PNFrontController(UIViewController *controller);
+static id PNVideoPlaybackInWindow(UIWindow *window);
+
+static void PNShowMessage(UIWindow *window, NSString *message) {
+    UIViewController *presenter = PNFrontController(window.rootViewController);
+    if (!presenter.isViewLoaded || !presenter.view.window ||
+        [presenter isKindOfClass:UIAlertController.class] || presenter.isBeingDismissed) return;
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"在 PiliNara 打开"
         message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
-    [owner presentViewController:alert animated:YES completion:nil];
+    [presenter presentViewController:alert animated:YES completion:nil];
 }
 
 @implementation PNJumpButton
 - (void)openCurrentVideo {
-    UIViewController *owner = self.owner;
-    if (self.opening || !owner.view.window) return;
-    id player = PNCurrentPlayback(owner);
+    UIWindow *window = self.window;
+    if (self.opening || !window || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
+    // Re-read the focused player in this window, even when a comment sheet is on top.
+    id player = PNVideoPlaybackInWindow(window);
     PNVideoTarget *target = [PNVideoTarget targetWithPlayerItem:PNReadValue(player, @"currentItem")];
     if (!target) {
-        PNShowMessage(owner, @"尚未读取到当前视频和分 P。请让视频开始播放后重试。若仍失败，可能需要适配当前哔哩哔哩版本。");
+        PNShowMessage(window, @"尚未读取到当前视频和分 P。请让视频开始播放后重试。若仍失败，可能需要适配当前哔哩哔哩版本。");
         return;
     }
     self.opening = YES;
@@ -88,18 +93,16 @@ static void PNShowMessage(UIViewController *owner, NSString *message) {
         dispatch_async(dispatch_get_main_queue(), ^{
             self.opening = NO;
             self.enabled = YES;
-            if (!success) PNShowMessage(owner, @"无法打开 PiliNara。请安装支持 pilinara:// 的版本（2026-10-13 的“B站打开”版或更新版本）。");
+            if (!success) PNShowMessage(window, @"无法打开 PiliNara。请安装支持 pilinara:// 的版本（2026-10-13 的“B站打开”版或更新版本）。");
         });
     }];
 }
 @end
 
-static void PNInstallButton(UIViewController *owner, CGRect likeFrame, BOOL portraitPlayer) {
-    if (!owner.isViewLoaded) return;
-    PNJumpButton *button = objc_getAssociatedObject(owner, &PNButtonKey);
+static PNJumpButton *PNInstallButton(UIWindow *window) {
+    PNJumpButton *button = objc_getAssociatedObject(window, &PNButtonKey);
     if (!button) {
         button = [PNJumpButton buttonWithType:UIButtonTypeCustom];
-        button.owner = owner;
         button.backgroundColor = [UIColor colorWithRed:0.91 green:0.27 blue:0.48 alpha:1];
         button.alpha = 0.5;
         button.layer.shadowColor = UIColor.blackColor.CGColor;
@@ -113,23 +116,21 @@ static void PNInstallButton(UIViewController *owner, CGRect likeFrame, BOOL port
         button.accessibilityLabel = @"在 PiliNara 打开当前视频";
         button.accessibilityHint = @"跳转到当前视频的同一分 P";
         [button addTarget:button action:@selector(openCurrentVideo) forControlEvents:UIControlEventTouchUpInside];
-        [owner.view addSubview:button];
-        objc_setAssociatedObject(owner, &PNButtonKey, button, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        [PNButtonOwners addObject:owner];
+        // A single small window subview leaves all other touches with Bilibili.
+        [window addSubview:button];
+        objc_setAssociatedObject(window, &PNButtonKey, button, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [PNButtons addObject:button];
     }
-    CGRect bounds = owner.view.bounds;
-    CGRect safe = UIEdgeInsetsInsetRect(bounds, owner.view.safeAreaInsets);
-    if (portraitPlayer && CGRectIsNull(likeFrame)) {
-        // A conservative upper fallback while the native action column loads.
-        // Replace it with the actual native like frame as soon as it is visible.
-        likeFrame = CGRectMake(CGRectGetMaxX(safe) - 52,
-            CGRectGetMinY(bounds) + CGRectGetHeight(bounds) * 0.55, 44, 44);
-    }
-    CGRect frame = PNJumpButtonFrame(bounds, safe, likeFrame);
+    // Only the actual app window defines placement. Page, sheet, player and
+    // keyboard layouts must never become the button's coordinate system.
+    CGRect bounds = window.bounds;
+    CGRect safe = UIEdgeInsetsInsetRect(bounds, window.safeAreaInsets);
+    CGRect frame = PNJumpButtonFrame(bounds, safe);
     if (!CGRectEqualToRect(button.frame, frame)) button.frame = frame;
     button.layer.cornerRadius = CGRectGetWidth(button.bounds) / 2;
     button.hidden = CGRectIsEmpty(button.frame);
-    if (owner.view.subviews.lastObject != button) [owner.view bringSubviewToFront:button];
+    if (window.subviews.lastObject != button) [window bringSubviewToFront:button];
+    return button;
 }
 
 static UIViewController *PNFrontController(UIViewController *controller) {
@@ -157,16 +158,16 @@ static BOOL PNLikeName(NSString *name) {
         [lower containsString:@"thumbsup"];
 }
 
-static CGRect PNLikeFrame(UIView *root) {
+// Recognize a portrait video context only; controls never influence placement.
+static BOOL PNHasVideoActions(UIView *root) {
     NSMutableArray<UIView *> *pending = [NSMutableArray arrayWithObject:root];
-    CGRect matched = CGRectNull;
     NSUInteger visited = 0;
     while (pending.count && visited++ < 1800) {
         UIView *view = pending.lastObject;
         [pending removeLastObject];
         if (view.hidden || view.alpha < 0.01 || [view isKindOfClass:PNJumpButton.class]) continue;
         CGRect rect = [view convertRect:view.bounds toView:root];
-        if (!PNVisibleInOwner(view, root)) continue;
+        if (!PNVisibleInScope(view, root)) continue;
         [pending addObjectsFromArray:view.subviews];
         CGFloat width = CGRectGetWidth(rect), height = CGRectGetHeight(rect);
         CGFloat x = CGRectGetMidX(rect), y = CGRectGetMidY(rect);
@@ -185,9 +186,9 @@ static CGRect PNLikeFrame(UIView *root) {
                 }
             }
         }
-        if (named && (CGRectIsNull(matched) || CGRectGetMinY(rect) < CGRectGetMinY(matched))) matched = rect;
+        if (named) return YES;
     }
-    return matched;
+    return NO;
 }
 
 static UIViewController *PNDetailOwner(UIView *render) {
@@ -204,42 +205,40 @@ static UIViewController *PNDetailOwner(UIView *render) {
     return nil;
 }
 
+static id PNVideoPlaybackInWindow(UIWindow *window) {
+    id player = PNCurrentPlayback(window);
+    UIView *render = PNReadValue(player, @"view");
+    if (![render isKindOfClass:UIView.class]) return nil;
+    if (PNDetailOwner(render)) return player;
+    CGRect bounds = window.bounds;
+    if (CGRectIsEmpty(bounds)) return nil;
+    CGRect playerRect = [render convertRect:render.bounds toView:window];
+    BOOL fullPlayer = CGRectGetWidth(playerRect) >= CGRectGetWidth(bounds) * 0.7 &&
+        CGRectGetHeight(playerRect) >= CGRectGetHeight(bounds) * 0.65;
+    if (fullPlayer) return player;
+    BOOL portrait = CGRectGetHeight(bounds) > CGRectGetWidth(bounds);
+    return portrait && PNHasVideoActions(window) ? player : nil;
+}
+
 static void PNRefreshButtons(void) {
     static BOOL refreshing;
     if (refreshing) return;
     refreshing = YES;
-    NSMutableSet *activeOwners = [NSMutableSet set];
+    NSMutableSet *activeButtons = [NSMutableSet set];
     if (UIApplication.sharedApplication.applicationState == UIApplicationStateActive) {
         for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
             if (![scene isKindOfClass:UIWindowScene.class] || scene.activationState != UISceneActivationStateForegroundActive) continue;
             for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-                if (!window.isKeyWindow || window.hidden) continue;
-                UIViewController *owner = PNFrontController(window.rootViewController);
-                if (!owner.isViewLoaded || [owner isKindOfClass:UIAlertController.class]) continue;
-                id player = PNCurrentPlayback(owner);
-                UIView *render = PNReadValue(player, @"view");
-                if (![render isKindOfClass:UIView.class]) continue;
-                UIViewController *detailOwner = PNDetailOwner(render);
-                if (detailOwner && PNVisibleInOwner(render, detailOwner.view)) owner = detailOwner;
-                CGRect bounds = owner.view.bounds;
-                if (CGRectIsEmpty(bounds)) continue;
-                CGRect playerRect = [render convertRect:render.bounds toView:owner.view];
-                BOOL fullPlayer = CGRectGetWidth(playerRect) >= CGRectGetWidth(bounds) * 0.7 &&
-                    CGRectGetHeight(playerRect) >= CGRectGetHeight(bounds) * 0.65;
-                BOOL portrait = CGRectGetHeight(bounds) > CGRectGetWidth(bounds);
-                CGRect like = portrait ? PNLikeFrame(owner.view) : CGRectNull;
-                // A fullscreen visible player supports Story without guessing its VC class.
-                if (!detailOwner && !fullPlayer && CGRectIsNull(like)) continue;
-                PNInstallButton(owner, like, portrait && fullPlayer);
-                [activeOwners addObject:owner];
+                // Text entry may change the key window. Match the content window
+                // by its current video instead of moving into an input window.
+                if (window.hidden || window.alpha < 0.01 || !window.rootViewController.isViewLoaded) continue;
+                if (!PNVideoPlaybackInWindow(window)) continue;
+                [activeButtons addObject:PNInstallButton(window)];
             }
         }
     }
-    for (UIViewController *owner in PNButtonOwners.allObjects) {
-        if (![activeOwners containsObject:owner]) {
-            PNJumpButton *button = objc_getAssociatedObject(owner, &PNButtonKey);
-            button.hidden = YES;
-        }
+    for (PNJumpButton *button in PNButtons.allObjects) {
+        if (![activeButtons containsObject:button]) button.hidden = YES;
     }
     refreshing = NO;
 }
@@ -312,7 +311,7 @@ __attribute__((constructor)) static void PNInitialize(void) {
         if (![NSBundle.mainBundle.bundleIdentifier isEqualToString:@"tv.danmaku.bilianime"]) return;
         PNPlaybacks = [NSHashTable weakObjectsHashTable];
         PNPlaybackLock = [NSLock new];
-        PNButtonOwners = [NSHashTable weakObjectsHashTable];
+        PNButtons = [NSHashTable weakObjectsHashTable];
         dispatch_async(dispatch_get_main_queue(), ^{
             PNRefreshTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
             dispatch_source_set_timer(PNRefreshTimer, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 2),

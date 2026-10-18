@@ -178,8 +178,8 @@ static PNJumpButton *PNInstallButton(UIWindow *window, id player) {
         button.portraitFrame = CGRectNull;
     }
     PNPortraitActionRail rail;
-    BOOL hasRail = CGRectGetHeight(bounds) > CGRectGetWidth(bounds) &&
-        PNReadPortraitRail(window, player, &rail);
+    BOOL portrait = CGRectGetHeight(bounds) > CGRectGetWidth(bounds);
+    BOOL hasRail = portrait && PNReadPortraitRail(window, player, &rail);
     if (hasRail && CGRectIsNull(button.portraitFrame)) {
         button.portraitFrame = PNPortraitJumpButtonFrame(bounds, safe, rail);
         UIView *render = PNReadValue(player, @"view");
@@ -194,12 +194,20 @@ static PNJumpButton *PNInstallButton(UIWindow *window, id player) {
     }
     // Freeze a confirmed rail position for this video/viewport. Comment sheets
     // and keyboards must not recalculate the anchor from comment vote buttons.
-    BOOL portrait = !CGRectIsNull(button.portraitFrame);
-    CGRect frame = portrait ? button.portraitFrame : PNJumpButtonFrame(bounds, safe);
+    // A failed native lookup must not leave portrait mode at the old 60%
+    // position between Like and Comment. Use the supplied screenshot's fixed
+    // portrait placement until a complete native rail can supply an anchor.
+    CGRect frame = portrait ? (CGRectIsNull(button.portraitFrame) ?
+        PNPortraitFallbackJumpButtonFrame(bounds, safe) : button.portraitFrame) :
+        PNJumpButtonFrame(bounds, safe);
+    if (CGRectIsNull(frame) || CGRectIsEmpty(frame)) {
+        button.hidden = YES;
+        return button;
+    }
     [button applyPortraitStyle:portrait];
     if (!CGRectEqualToRect(button.frame, frame)) button.frame = frame;
     button.layer.cornerRadius = 0;
-    button.hidden = CGRectIsEmpty(button.frame);
+    button.hidden = NO;
     if (window.subviews.lastObject != button) [window bringSubviewToFront:button];
     return button;
 }

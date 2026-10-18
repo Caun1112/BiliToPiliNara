@@ -30,6 +30,10 @@ typedef struct {
 } PNPortraitActionRail;
 
 FOUNDATION_EXPORT const CGFloat PNPortraitJumpButtonHeight;
+/// Stable portrait fallback when private native controls cannot be identified.
+/// Match the supplied portrait viewport: glyph center at 49% of window height,
+/// 27 points from the right edge; vertical safe-area/keyboard changes are ignored.
+FOUNDATION_EXPORT CGRect PNPortraitFallbackJumpButtonFrame(CGRect windowBounds, CGRect safeBounds);
 /// Require aligned, regularly spaced native actions, rather than a comment vote.
 FOUNDATION_EXPORT BOOL PNFindPortraitActionRail(const PNPortraitActionAnchor *anchors,
     NSUInteger count, CGRect windowBounds, BOOL allowUngroupedFallback, PNPortraitActionRail *rail);

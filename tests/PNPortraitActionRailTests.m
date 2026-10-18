@@ -36,6 +36,15 @@ int main(void) {
             @"download glyph follows native row rhythm");
 
         CGRect keyboardSafe = CGRectMake(0, 500, 430, 100);
+        CGRect fallback = PNPortraitFallbackJumpButtonFrame(window, safe);
+        Check(!CGRectIsNull(fallback), @"missing native hierarchy still has an explicit portrait layout");
+        Check(fabs(CGRectGetMidX(fallback) - 403) < 0.01, @"fallback matches reference action column");
+        Check(fabs(fallback.origin.y + 18 - 932 * 0.49) < 0.01, @"fallback glyph moves up from old 60 percent placement");
+        Check(CGRectGetMaxY(fallback) < CGRectGetMinY(native[0].frame), @"fallback fits above reference Like button");
+        Check(CGRectEqualToRect(fallback, PNPortraitFallbackJumpButtonFrame(window, keyboardSafe)),
+            @"keyboard cannot move fallback portrait button");
+        Check(CGRectIsNull(PNPortraitFallbackJumpButtonFrame(CGRectMake(0, 0, 932, 430), safe)),
+            @"portrait fallback is not used in landscape");
         Check(CGRectEqualToRect(frame, PNPortraitJumpButtonFrame(window, keyboardSafe, rail)),
             @"keyboard vertical insets do not move the rail control");
         PNPortraitActionRail invalid = {CGRectNull, CGRectNull};

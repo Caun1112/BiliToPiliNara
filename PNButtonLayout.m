@@ -47,6 +47,19 @@ CGRect PNJumpButtonFrame(CGRect windowBounds, CGRect safeBounds) {
     return CGRectMake(x, y, diameter, diameter);
 }
 
+CGRect PNPortraitFallbackJumpButtonFrame(CGRect bounds, CGRect safeBounds) {
+    if (!PNUsableRect(bounds) || bounds.size.height <= bounds.size.width) return CGRectNull;
+    CGRect fixed = PNJumpButtonFrame(bounds, safeBounds);
+    if (CGRectIsEmpty(fixed) || bounds.size.height < PNPortraitJumpButtonHeight + 16) return CGRectNull;
+    CGFloat maxX = CGRectGetMaxX(bounds);
+    if (PNUsableRect(safeBounds)) maxX = MIN(maxX, CGRectGetMaxX(safeBounds));
+    CGFloat x = PNClamp(maxX - 27 - PNJumpButtonDiameter / 2,
+        CGRectGetMinX(fixed), maxX - 4 - PNJumpButtonDiameter);
+    CGFloat y = PNClamp(CGRectGetMinY(bounds) + 0.49 * bounds.size.height - 18,
+        CGRectGetMinY(bounds) + 8, CGRectGetMaxY(bounds) - 8 - PNPortraitJumpButtonHeight);
+    return CGRectMake(x, y, PNJumpButtonDiameter, PNPortraitJumpButtonHeight);
+}
+
 static BOOL PNRailAnchorValid(PNPortraitActionAnchor anchor, CGRect bounds) {
     return PNUsableRect(anchor.frame) && CGRectContainsRect(bounds, anchor.frame) &&
         anchor.frame.size.width >= 16 && anchor.frame.size.width <= 100 &&

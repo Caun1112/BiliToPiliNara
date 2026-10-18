@@ -99,27 +99,28 @@ static void PNShowMessage(UIWindow *window, NSString *message) {
     if (self.styleConfigured && self.portraitStyle == portrait) return;
     self.styleConfigured = YES;
     self.portraitStyle = portrait;
-    self.backgroundColor = portrait ? UIColor.clearColor :
-        [UIColor colorWithRed:0.91 green:0.27 blue:0.48 alpha:1];
-    self.alpha = portrait ? 1 : 0.5;
-    self.layer.shadowOpacity = portrait ? 0.3 : 0.18;
-    self.layer.shadowRadius = portrait ? 1 : 6;
-    self.layer.shadowOffset = CGSizeMake(0, portrait ? 1 : 2);
+    // Appearance must not depend on private action-rail discovery. A missing
+    // anchor changes placement only; it must never restore the old pink P↗.
+    self.backgroundColor = UIColor.clearColor;
+    self.alpha = 1;
+    self.layer.shadowOpacity = 0.3;
+    self.layer.shadowRadius = 1;
+    self.layer.shadowOffset = CGSizeMake(0, 1);
     self.tintColor = UIColor.whiteColor;
     self.imageView.contentMode = UIViewContentModeScaleAspectFit;
     self.titleLabel.font = [UIFont systemFontOfSize:portrait ? 12 : 17
         weight:portrait ? UIFontWeightMedium : UIFontWeightSemibold];
     self.titleLabel.textAlignment = NSTextAlignmentCenter;
-    self.titleLabel.shadowColor = portrait ? [UIColor colorWithWhite:0 alpha:0.45] : nil;
-    self.titleLabel.shadowOffset = CGSizeMake(0, portrait ? 1 : 0);
+    self.titleLabel.shadowColor = [UIColor colorWithWhite:0 alpha:0.45];
+    self.titleLabel.shadowOffset = CGSizeMake(0, 1);
     static UIImage *downloadImage;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         downloadImage = [UIImage systemImageNamed:@"arrow.down.to.line"
             withConfiguration:[UIImageSymbolConfiguration configurationWithPointSize:28 weight:UIImageSymbolWeightBold]];
     });
-    [self setImage:portrait ? downloadImage : nil forState:UIControlStateNormal];
-    [self setTitle:portrait ? @"480P" : @"P↗" forState:UIControlStateNormal];
+    [self setImage:downloadImage forState:UIControlStateNormal];
+    [self setTitle:portrait ? @"480P" : nil forState:UIControlStateNormal];
     [self setNeedsLayout];
 }
 - (void)openCurrentVideo {
@@ -197,7 +198,7 @@ static PNJumpButton *PNInstallButton(UIWindow *window, id player) {
     CGRect frame = portrait ? button.portraitFrame : PNJumpButtonFrame(bounds, safe);
     [button applyPortraitStyle:portrait];
     if (!CGRectEqualToRect(button.frame, frame)) button.frame = frame;
-    button.layer.cornerRadius = portrait ? 0 : CGRectGetWidth(button.bounds) / 2;
+    button.layer.cornerRadius = 0;
     button.hidden = CGRectIsEmpty(button.frame);
     if (window.subviews.lastObject != button) [window bringSubviewToFront:button];
     return button;
